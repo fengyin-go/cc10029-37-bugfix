@@ -11,6 +11,8 @@ from app.services.teach_record import TeachRecordService
 from app.services.semester_goal import SemesterGoalService
 from app.services.review_meeting import ReviewMeetingService
 from app.services.improve_task import ImproveTaskService
+from app.services.diagnosis_review import DiagnosisReviewService
+from app.services.workflow_receipt import WorkflowReceiptService
 from app.services.external_eval import ExternalEvalService
 from app.services.course_group import CourseGroupService
 from app.services.syllabus_rev import SyllabusRevService
@@ -33,6 +35,8 @@ SERVICES: dict[str, BaseModuleService] = {
     "semester_goal": SemesterGoalService(),
     "review_meeting": ReviewMeetingService(),
     "improve_task": ImproveTaskService(),
+    "diagnosis_review": DiagnosisReviewService(),
+    "workflow_receipt": WorkflowReceiptService(),
     "external_eval": ExternalEvalService(),
     "course_group": CourseGroupService(),
     "syllabus_rev": SyllabusRevService(),

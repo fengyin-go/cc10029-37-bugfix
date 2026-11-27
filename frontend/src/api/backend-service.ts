@@ -29,11 +29,28 @@ export async function runAction(
   key: string,
   id: number,
   action: string,
+  context: Record<string, unknown> = {},
 ): Promise<ActionResult> {
   const response = await request(`/api/${key}/${id}/actions`, {
     method: 'POST',
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, ...context }),
   })
+  if (!response.ok) {
+    let detail = `操作请求返回 ${response.status}`
+    try {
+      const body = await response.json()
+      detail = body?.message || body?.detail || detail
+    } catch {
+      // 保留默认错误信息。
+    }
+    throw new Error(detail)
+  }
+  return await response.json()
+}
+
+export async function lookupReceipt(reference: string): Promise<Record<string, unknown>> {
+  const response = await request(`/api/receipts/${encodeURIComponent(reference)}`)
+  if (!response.ok) throw new Error('未查到回执或原处理结果')
   return await response.json()
 }
 

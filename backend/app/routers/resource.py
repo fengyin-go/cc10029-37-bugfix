@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import inspect
 import io
 from typing import Any
 
@@ -10,6 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
 from app.services import service_for
+from app.services.workflow import ActionOutcome, receipt_lookup
 
 router = APIRouter(prefix="/api", tags=["业务资源"])
 
@@ -73,6 +75,25 @@ def export_entries(
     )
 
 
+@router.get("/receipts/{receipt_ref}")
+@router.get("/workflow/receipts/{receipt_ref}")
+@router.get("/workflow/requests/{receipt_ref}")
+def get_receipt(receipt_ref: str) -> dict[str, Any]:
+    """按回执编号或幂等请求编号查询原操作、原任务编号和原处理结果。"""
+    receipt = receipt_lookup(receipt_ref)
+    if receipt is None:
+        raise HTTPException(status_code=404, detail=f"未找到回执：{receipt_ref}")
+    return receipt
+
+
+@router.get("/workflow/lookup")
+def lookup_workflow(reference: str = Query(..., min_length=1)) -> dict[str, Any]:
+    receipt = receipt_lookup(reference)
+    if receipt is None:
+        raise HTTPException(status_code=404, detail=f"未找到回执或待复核事项：{reference}")
+    return receipt
+
+
 @router.get("/{module}/{entry_id}", response_model=dict)
 def get_entry(module: str, entry_id: int) -> dict[str, Any]:
     service = require_service(module)
@@ -92,7 +113,37 @@ def create_entry(module: str, payload: EntryPayload) -> ActionResult:
 
 
 @router.post("/{module}/{entry_id}/actions", response_model=ActionResult)
-def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult:
+def run_action(module: str, entry_id: int, payload: ActionPayload, http_request: Request) -> ActionResult:
     service = require_service(module)
-    entry, message = service.run_action(entry_id, payload.action.strip())
-    return ActionResult(ok=entry is not None, message=message, entry=entry)
+    context = payload.model_dump(exclude={"action"})
+    if not context.get("request_id"):
+        context["request_id"] = (
+            http_request.headers.get("idempotency-key")
+            or http_request.headers.get("x-idempotency-key")
+            or http_request.headers.get("x-request-id")
+            or http_request.query_params.get("request_id")
+        )
+    run_method = service.run_action
+    kwargs: dict[str, Any] = {}
+    try:
+        signature = inspect.signature(run_method)
+        if "context" in signature.parameters:
+            kwargs["context"] = context
+    except (TypeError, ValueError):
+        pass
+
+    outcome = run_method(entry_id, payload.action.strip(), **kwargs)
+    extra: dict[str, Any] = {}
+    if isinstance(outcome, ActionOutcome):
+        entry, message = outcome.entry, outcome.message
+        extra = {
+            "receipt": outcome.receipt,
+            "receipts": outcome.receipts,
+            "review_item": outcome.review_item,
+            "conflict": outcome.conflict,
+            "idempotent_replay": outcome.idempotent_replay,
+        }
+    else:
+        entry, message = outcome
+
+    return ActionResult(ok=entry is not None, message=message, entry=entry, **extra)
